@@ -1,0 +1,142 @@
+﻿@model DeployToAzure.Models.DeployViewModel
+
+@{
+    ViewBag.Title = "Index";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+<style>
+    select::-ms-expand {
+        width: 12px;
+        border: none;
+        background: #fff;
+    }
+</style>
+
+<div class="container">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="jumbotron">
+                <h1>Deploy to Azure</h1>
+                @using (Html.BeginForm("Index", "Deploy", FormMethod.Post, new { @class = "form-horizontal" }))
+                {
+                    <div class="form-group">
+                        <span class="control-label col-xs-2">Geo Region</span>
+                        <div class="col-xs-9">
+                            @Html.DropDownList("webSpace", Model.WebSpaces.Select(x => new SelectListItem { Text = x.GeoRegion, Value = x.WebSpaceName }), new { id = "webSpace", @class = "form-control col-xs-9" })
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <span for="gitUrl" class="control-label col-xs-2">Git URL</span>
+                        <div class="col-xs-9">
+                            <input required="required" type="text" id="gitUrl" name="gitUrl" class="form-control" value="@Model.GitRepositoryUrl" />
+                        </div>
+                    </div>
+
+                    <div class="form-group has-warning" id="siteNameCheckForm">
+                        <span class="col-xs-2 control-label">Site Name</span>
+                        <div class="col-xs-9">
+                            <div class="input-group col-xs-9">
+                                <input required="required" type="text" id="webSiteName" name="webSiteName" class="form-control" placeholder="foo">
+                            </div>
+                            <span class="help-block" id="siteNameResult">Please name your new Website</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="col-xs-offset-2 col-xs-9">
+                            <button id="submitButton" class="btn btn-info" type="button">Deploy to Azure</button>
+                            <img id="spinner" src="~/Content/spinner.gif" style="width: 24px; height: 24px; margin-left: 5px;" />
+                            <a href="#" id="viewSiteLink" class="btn btn-success" target="_blank" style="margin-left: 5px;">View Site</a>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="jumbotron" id="statusContainer">
+                <h2>Status</h2>
+                <ul id="status" class="list-unstyled">
+                    <li>Waiting for input</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+
+@section scripts
+{
+    <script src="~/Scripts/jquery.signalR-2.0.2.js"></script>
+    <script type="text/javascript">
+        $(function () {
+            // disable the button to start off and hide the view site button
+            $('#submitButton').attr('disabled', 'disabled');
+            $('#viewSiteLink').hide();
+            $('#spinner').hide();
+            $('#statusContainer').hide();
+
+            // connect the status hub
+            var con = $.hubConnection();
+            var hub = con.createHubProxy('statusHub');
+            hub.on('messageTraced', function (message) {
+                $('#status').append('<li>' + message + '</li>');
+            });
+            con.start();
+
+            // post the form
+            $('#submitButton').click(function () {
+                $('#spinner').show();
+                $('#statusContainer').slideDown();
+                $('#submitButton').html('Deploying to Azure');
+                hub.invoke('addToGroup', $('#webSiteName').val())
+
+                $.post('/deploy/Index', {
+                    webSpace: $('#webSpace').val(),
+                    gitUrl: $('#gitUrl').val(),
+                    webSiteName: $('#webSiteName').val()
+                }, function (result) {
+
+                    $('#spinner').hide();
+                    $('#statusContainer').slideUp();
+                    $('#submitButton').html('Deployed to Azure');
+
+                    if (result.success == true) {
+                        $('#viewSiteLink').attr('href', 'http://' + $('#webSiteName').val() + '.azurewebsites.net');
+                        $('#viewSiteLink').fadeIn();
+                    }
+                });
+            });
+
+            // handle the status of the form validation and messaging (could be refactored)
+            $('#webSiteName').change(function () {
+                $('#siteNameCheckForm').removeClass('has-warning');
+                $('#siteNameCheckForm').removeClass('has-success');
+                $('#siteNameCheckForm').removeClass('has-error');
+                $('#siteNameCheckForm').addClass('has-warning'); 
+                $('#siteNameResult').text('Checking "' + $('#webSiteName').val() + '.azurewebsites.net" for availability.');
+
+                $.get('/deploy/CheckWebSiteName?webSiteName=' + $('#webSiteName').val(), function (data) {
+                    if (data.isSiteAvailable == true) {
+                        $('#siteNameCheckForm').removeClass('has-warning');
+                        $('#siteNameCheckForm').removeClass('has-success');
+                        $('#siteNameCheckForm').removeClass('has-error');
+                        $('#siteNameCheckForm').addClass('has-success');
+                        $('#siteNameResult').text('Site "' + $('#webSiteName').val() + '.azurewebsites.net" is available.');
+                        $('#submitButton').removeAttr('disabled');
+                    }
+                    else {
+                        $('#siteNameCheckForm').removeClass('has-warning');
+                        $('#siteNameCheckForm').removeClass('has-success');
+                        $('#siteNameCheckForm').removeClass('has-error');
+                        $('#siteNameCheckForm').addClass('has-error');
+                        $('#siteNameResult').text('Site "' + $('#webSiteName').val() + '.azurewebsites.net" is unavailable.');
+                        $('#submitButton').attr('disabled', 'disabled');
+                    }
+                });
+            });
+        });
+    </script>
+}
